@@ -24,6 +24,18 @@ from .scene import MujocoSoccer
 from .schemas import ExperimentConfig, MotionClip, SpawnState, TrialResult
 
 
+def configure_tracking_camera(viewer, env: MujocoSoccer, distance: float) -> None:
+    """Frame the rollout from a camera that follows the robot pelvis."""
+    with viewer.lock():
+        viewer.cam.type = mujoco.mjtCamera.mjCAMERA_TRACKING
+        viewer.cam.trackbodyid = env.pelvis_body_id
+        viewer.cam.distance = float(distance)
+        viewer.cam.azimuth = 135.0
+        viewer.cam.elevation = -20.0
+        viewer.cam.lookat[:] = env.pelvis_pos
+    viewer.sync()
+
+
 def sample_ball_local_xy(cfg: ExperimentConfig, rng: np.random.Generator) -> np.ndarray:
     return np.array(
         [
@@ -216,6 +228,7 @@ def run_trial(
         from mujoco import viewer as mujoco_viewer
 
         viewer = mujoco_viewer.launch_passive(env.model, env.data)
+        configure_tracking_camera(viewer, env, cfg.camera_distance)
         owns_viewer = True
 
     try:

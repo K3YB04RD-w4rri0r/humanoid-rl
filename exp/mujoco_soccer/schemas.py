@@ -28,6 +28,8 @@ class ExperimentConfig:
     goal_frame: str
     ball_speed_threshold: float
     render: bool
+    pause_at_end: bool
+    camera_distance: float
     preload_policies: bool
     reference_only: bool
     rnn_num_layers: int

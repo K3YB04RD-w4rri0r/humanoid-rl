@@ -19,8 +19,11 @@ python exp/mujoco_soccer_experiment.py \
   --policy ckp/policy_30000.onnx \
   --motion-path motions/soccer-standard \
   --num-trials 1 \
-  --visualize
+  --visualize \
+  --pause-at-end
 ```
+
+On macOS, run the visualized command with `mjpython` instead of `python`; passive MuJoCo viewers require it. The viewer camera follows the robot pelvis by default. Use `--camera-distance 3.0` to zoom in or a larger value to zoom out. With `--pause-at-end`, the last simulated state remains visible until you close the viewer window or press Ctrl-C in the terminal.
 
 Remove `--visualize` for batch evaluation:
 

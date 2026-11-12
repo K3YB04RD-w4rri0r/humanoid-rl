@@ -105,8 +105,11 @@ python exp/mujoco_soccer_experiment.py \
     --policy ckp/policy_30000.onnx \
     --motion-path motions/soccer-standard \
     --num-trials 1 \
-    --visualize
+    --visualize \
+    --pause-at-end
 ```
+
+On macOS, use `mjpython` instead of `python` for this visualized command. The camera tracks the robot; add `--camera-distance 3.0` to zoom in.
 
 See [`exp/README.md`](exp/README.md) for ONNX export, batch sim2sim evaluation, output files, and offline trajectory metrics.
 

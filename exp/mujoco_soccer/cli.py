@@ -4,6 +4,7 @@ import argparse
 import datetime as dt
 import re
 import secrets
+import time
 from pathlib import Path
 
 import numpy as np
@@ -12,7 +13,7 @@ from .constants import DEFAULT_MJCF, DEFAULT_MOTION_PATH, DEFAULT_OUTPUT_ROOT
 from .metrics import summarize, write_outputs
 from .motion import load_motion_clips
 from .policy import PolicyBank
-from .runner import run_trial
+from .runner import configure_tracking_camera, run_trial
 from .scene import MujocoSoccer, make_experiment_xml
 from .schemas import ExperimentConfig, TrialResult
 
@@ -96,6 +97,17 @@ def build_arg_parser() -> argparse.ArgumentParser:
         dest="render",
         help="Open a MuJoCo viewer window and pace the rollout in real time.",
     )
+    parser.add_argument(
+        "--pause-at-end",
+        action="store_true",
+        help="Keep the final simulated state visible until the viewer window is closed (requires --visualize).",
+    )
+    parser.add_argument(
+        "--camera-distance",
+        type=float,
+        default=4.0,
+        help="Distance in meters of the viewer camera that tracks the robot pelvis.",
+    )
     parser.add_argument("--preload-policies", action="store_true", help="Load all ONNX policies before the first trial.")
     parser.add_argument(
         "--reference-only",
@@ -130,6 +142,10 @@ def config_from_args(args: argparse.Namespace) -> ExperimentConfig:
     ball_speed_range = parse_range(args.ball_speed_range, "--ball-speed-range")
     if ball_speed_range[0] < 0.0:
         raise ValueError(f"--ball-speed-range lower bound must be >= 0: got {ball_speed_range[0]}")
+    if args.pause_at_end and not args.render:
+        raise ValueError("--pause-at-end requires --visualize")
+    if args.camera_distance <= 0.0:
+        raise ValueError(f"--camera-distance must be > 0: got {args.camera_distance}")
     timestamp = dt.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
     if args.output_dir is not None:
         output_dir = args.output_dir
@@ -159,6 +175,8 @@ def config_from_args(args: argparse.Namespace) -> ExperimentConfig:
         goal_frame=args.goal_frame,
         ball_speed_threshold=float(args.ball_speed_threshold),
         render=bool(args.render),
+        pause_at_end=bool(args.pause_at_end),
+        camera_distance=float(args.camera_distance),
         preload_policies=bool(args.preload_policies),
         reference_only=bool(args.reference_only),
         rnn_num_layers=int(args.rnn_num_layers),
@@ -196,6 +214,7 @@ def main() -> None:
             from mujoco import viewer as mujoco_viewer
 
             viewer = mujoco_viewer.launch_passive(env.model, env.data)
+            configure_tracking_camera(viewer, env, cfg.camera_distance)
 
         results: list[TrialResult] = []
         for trial in range(cfg.num_trials):
@@ -227,6 +246,15 @@ def main() -> None:
                 print(f"  {key}: {value:.6f}")
             else:
                 print(f"  {key}: {value}")
+
+        if cfg.pause_at_end and viewer is not None and viewer.is_running():
+            print("[INFO] Final state paused. Close the MuJoCo window or press Ctrl-C in this terminal to exit.")
+            try:
+                while viewer.is_running():
+                    viewer.sync()
+                    time.sleep(0.05)
+            except KeyboardInterrupt:
+                print("\n[INFO] Closing the MuJoCo viewer.")
     finally:
         if viewer is not None:
             viewer.close()
