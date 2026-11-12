@@ -1,0 +1,11 @@
+# Reproduce the Booster T1 "walk on command" baseline from MuJoCo Playground.
+env_name: T1JoystickFlatTerrain
+seed: 0
+
+# Leave empty to use Playground's tuned PPO settings for this environment
+# (200M steps, 8192 parallel envs). Override single keys here, e.g.:
+#   num_timesteps: 50_000_000
+ppo_overrides: {}
+
+# Keys passed to the environment config, e.g. episode_length: 1000
+env_overrides: {}

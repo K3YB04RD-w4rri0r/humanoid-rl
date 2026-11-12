@@ -1,0 +1,30 @@
+[project]
+name = "humanoid-rl"
+version = "0.1.0"
+description = "Deep RL for humanoid robots in MuJoCo Playground (RoboCup HSL groundwork)"
+readme = "README.md"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    # Pinned on purpose: Playground 1.0 (Nov 2026) is a PyTorch/MuJoCo Warp rewrite
+    # without the JAX locomotion tasks (Booster T1, G1 joystick...) we reproduce here.
+    "playground==0.2.0",
+    # Versions from the same era as Playground 0.2.0. Newer JAX removed APIs
+    # that Brax 0.14 still uses (jax.device_put_replicated).
+    "brax==0.14.2",
+    "jax>=0.9,<0.10",
+    "mujoco>=3.6,<4",
+    "mujoco-mjx>=3.6,<4",
+    "matplotlib",
+    "mediapy",
+    "pyyaml",
+]
+
+[project.optional-dependencies]
+# NVIDIA GPU support for JAX (Linux or WSL2 only).
+cuda = ["jax[cuda12]>=0.9,<0.10"]
+
+[dependency-groups]
+dev = ["pytest"]
+
+[tool.uv]
+package = false
