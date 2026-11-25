@@ -25,14 +25,3 @@ Randomize the simulator enough and the real world looks like one more variation.
 **Henderson et al., *Deep Reinforcement Learning that Matters*, AAAI 2018.** [arXiv:1709.06560](https://arxiv.org/abs/1709.06560)
 
 Shows how much deep RL results vary from run to run, which makes comparisons hard to trust, and proposes reporting guidelines. Basis for how we report the reproduced baseline (goal 2): several seeds, with the spread.
-
-
-## Simulators and frameworks
-
-- [MuJoCo Playground v0.2.0](https://github.com/google-deepmind/mujoco_playground/tree/v0.2.0)
-- [Brax](https://github.com/google/brax)
-- [Isaac Lab](https://github.com/isaac-sim/IsaacLab)
-- [mjlab](https://github.com/mujocolab/mjlab)
-- [Booster Gym](https://github.com/BoosterRobotics/booster_gym)
-
-
