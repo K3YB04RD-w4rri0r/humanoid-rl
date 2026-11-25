@@ -1,32 +1,38 @@
 
 ## Setup
 
-#### Environment
-
-Conda, Python 3.12:
+Needs NVIDIA driver 580.65.06+, Docker and the NVIDIA Container Toolkit.
 
 ```bash
-conda create -n humanoid_env python=3.12
-conda activate humanoid_env
-python -m pip install -r requirements.txt    # ~1.6 GB
+scripts/setup_isaaclab.sh
+docker run -it --gpus all -e ACCEPT_EULA=Y -v "$PWD":/workspace/humanoid-rl --name humanoid-rl --entrypoint bash nvcr.io/nvidia/isaac-lab:2.3.2
 ```
 
-On the GPU workstation, install `jax[cuda12]==0.12.0.1` instead of `jax==0.12.0.1` (see `requirements.txt`).
-
-#### Getting the K1
-
-K1 model from [booster_assets](https://github.com/BoosterRobotics/booster_assets). The script downloads the model XML and its meshes into `src/data/assets/K1/`.
+In the container:
 
 ```bash
-scripts/fetch_k1.sh
+cd /workspace/humanoid-rl/third_party/booster_train
+pip install -e ../booster_assets -e source/booster_train
+python scripts/csv_to_npz.py --headless --input_file=../booster_assets/motions/K1/k1_mj2_seg1.csv --input_fps=50 --output_file=../booster_assets/motions/K1/k1_mj2_seg1.npz
 ```
 
-
-#### Basic scripts
+## Usage
 
 ```bash
-python -m src.examples.view_k1                     # viewer, K1 standing (close the window to stop)
-python -m src.examples.view_k1 --mode fall         # viewer, motors off
-python -m src.examples.view_k1 --video k1.mp4      # no window, writes a 5 s video
+docker start -ai humanoid-rl
 ```
 
+Train:
+
+```bash
+cd /workspace/humanoid-rl/third_party/booster_train
+python scripts/rsl_rl/train.py --task=Booster-K1-MJ_Dance_002-v0 --headless --device cuda:0
+```
+
+View the K1:
+
+```bash
+cd /workspace/humanoid-rl
+python -m src.examples.view_k1 --video k1.mp4                # 5 s video of the K1 standing
+python -m src.examples.view_k1 --video k1.mp4 --mode fall    # motors off
+```

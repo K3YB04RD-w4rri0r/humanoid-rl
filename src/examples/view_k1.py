@@ -1,114 +1,136 @@
-"""Load the Booster K1 in MuJoCo and watch it stand (PD hold) or fall (motors off).
+"""Load the Booster K1 in Isaac Lab and watch it stand (PD hold of the default pose) or fall (motors off).
 
-    python -m src.view_k1                      # viewer, holds a standing pose (close the window to stop)
-    python -m src.view_k1 --mode fall          # viewer, motors off
-    python -m src.view_k1 --video k1.mp4       # no window, writes a 5 s video
+Run inside the Isaac Lab container, from the repo root:
+
+    python -m src.examples.view_k1 --headless                  # no window, 5 s, prints whether the K1 is still standing
+    python -m src.examples.view_k1 --headless --mode fall      # motors off
+    python -m src.examples.view_k1 --video k1.mp4              # no window, writes a 5 s video
+    python -m src.examples.view_k1                             # Isaac Sim window, needs a display (close it to stop)
 """
 
 import argparse
 import time
-from pathlib import Path
 
-import mujoco
-import numpy as np
+from isaaclab.app import AppLauncher
 
-ROOT = Path(__file__).resolve().parents[1]
-MODEL = ROOT / "data/assets/K1/K1_22dof.xml"
+parser = argparse.ArgumentParser()
+parser.add_argument("--mode", choices=["stand", "fall"], default="stand")
+parser.add_argument("--seconds", type=float, default=5.0, help="run length without a window (the window runs until closed)")
+parser.add_argument("--video", help="write an .mp4 here instead of opening a window")
+AppLauncher.add_app_launcher_args(parser)
+args = parser.parse_args()
+if args.video:
+    args.headless = args.enable_cameras = True
+simulation_app = AppLauncher(args).app
 
-# PD gains for holding the zero pose (straight legs, arms out). Hand-picked, not Booster's.
+# Isaac Lab modules can only be imported once the app is running.
+import torch  # noqa: E402
+
+import isaaclab.sim as sim_utils  # noqa: E402
+from isaaclab.assets import Articulation  # noqa: E402
+from booster_train.assets.robots.booster_k1 import BOOSTER_K1_CFG  # noqa: E402
+
+DT = 0.005  # physics step of booster_train's K1 tasks
+FPS = 25
+# PD gains for holding the pose. Hand-picked: Booster's (legs kp 18-60, arms kp 4) are too soft to stand without a policy.
+# Booster's torque limits, torque-speed curve and command delay still apply.
 KP_LEG, KD_LEG = 100.0, 2.0
 KP_UPPER, KD_UPPER = 20.0, 0.5
-
-
-def place_on_ground(model, data):
-    """Lower the floating base until the robot just touches the floor."""
-    ground = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_GEOM, "ground")
-    lo, hi = 0.0, 1.0
-    for _ in range(30):
-        data.qpos[2] = (lo + hi) / 2
-        mujoco.mj_forward(model, data)
-        touching = any(ground in (c.geom1, c.geom2) for c in data.contact[: data.ncon])
-        lo, hi = (data.qpos[2], hi) if touching else (lo, data.qpos[2])
-    data.qpos[2] = hi
-    mujoco.mj_forward(model, data)
-
-
-def track_trunk(cam, model):
-    """Camera that follows the robot's trunk."""
-    cam.type = mujoco.mjtCamera.mjCAMERA_TRACKING
-    cam.trackbodyid = model.body("trunk").id
-    cam.distance, cam.elevation, cam.azimuth = 2.0, -15.0, 135.0
-
-
-def pd_gains(model):
-    """Leg joints get stiff gains, head and arms soft ones."""
-    names = [model.actuator(i).name for i in range(model.nu)]
-    leg = np.array([("hip" in n or "knee" in n or "ankle" in n) for n in names])
-    return np.where(leg, KP_LEG, KP_UPPER), np.where(leg, KD_LEG, KD_UPPER)
+CAM_OFFSET = (1.4, -1.4, 0.5)  # camera position relative to the trunk
 
 
 def main():
-    p = argparse.ArgumentParser()
-    p.add_argument("--mode", choices=["stand", "fall"], default="stand")
-    p.add_argument("--seconds", type=float, default=5.0, help="video length (the viewer runs until closed)")
-    p.add_argument("--video", help="write an .mp4 here instead of opening the viewer")
-    args = p.parse_args()
-
-    model = mujoco.MjModel.from_xml_path(str(MODEL))
-    data = mujoco.MjData(model)
-    place_on_ground(model, data)
-
-    # Each motor drives one hinge joint: qpos index = jnt_qposadr, qvel index = jnt_dofadr.
-    joints = model.actuator_trnid[:, 0]
-    qadr, vadr = model.jnt_qposadr[joints], model.jnt_dofadr[joints]
-    q_target = data.qpos[qadr].copy()
-    kp, kd = pd_gains(model)
-
-    mass = model.body_subtreemass[0]
-    print(f"K1 loaded: {model.nu} motors, nq={model.nq}, mass={mass:.1f} kg, dt={model.opt.timestep} s")
-
-    def step():
-        if args.mode == "stand":
-            data.ctrl[:] = kp * (q_target - data.qpos[qadr]) - kd * data.qvel[vadr]
-        mujoco.mj_step(model, data)
-
-    z0 = data.qpos[2]
-    n_steps = int(args.seconds / model.opt.timestep)
-
+    sim = sim_utils.SimulationContext(sim_utils.SimulationCfg(dt=DT, device=args.device))
+    ground = sim_utils.GroundPlaneCfg()
+    ground.func("/World/ground", ground)
+    light = sim_utils.DomeLightCfg(intensity=3000.0, color=(0.75, 0.75, 0.75))
+    light.func("/World/light", light)
+    robot = Articulation(BOOSTER_K1_CFG.replace(prim_path="/World/K1"))
     if args.video:
-        import imageio_ffmpeg
-        import mediapy
+        from isaaclab.sensors import Camera, CameraCfg
 
-        mediapy.set_ffmpeg(imageio_ffmpeg.get_ffmpeg_exe())
-        fps = 30
-        renderer = mujoco.Renderer(model, height=480, width=640)
-        cam = mujoco.MjvCamera()
-        track_trunk(cam, model)
+        camera = Camera(
+            CameraCfg(
+                prim_path="/World/camera",
+                height=480,
+                width=640,
+                data_types=["rgb"],
+                spawn=sim_utils.PinholeCameraCfg(focal_length=24.0, clipping_range=(0.1, 100.0)),
+            )
+        )
+    sim.reset()
+
+    # Start from booster_train's default pose (0.57 m up, arms down).
+    root = robot.data.default_root_state.clone()
+    robot.write_root_pose_to_sim(root[:, :7])
+    robot.write_root_velocity_to_sim(root[:, 7:])
+    robot.write_joint_state_to_sim(robot.data.default_joint_pos, robot.data.default_joint_vel)
+    robot.reset()
+    robot.update(0.0)
+
+    for group, actuator in robot.actuators.items():  # groups: legs, feet, arms, head
+        leg = group in ("legs", "feet")
+        stand = args.mode == "stand"
+        actuator.stiffness[:] = (KP_LEG if leg else KP_UPPER) if stand else 0.0
+        actuator.damping[:] = (KD_LEG if leg else KD_UPPER) if stand else 0.0
+
+    trunk = robot.find_bodies("trunk")[0][0]
+    mass = robot.data.default_mass.sum().item()
+    print(f"K1 loaded: {robot.num_joints} joints, {robot.num_bodies} bodies, mass={mass:.1f} kg, dt={DT} s")
+
+    offset = torch.tensor(CAM_OFFSET, device=sim.device)
+    q_target = robot.data.default_joint_pos.clone()
+    z0 = robot.data.body_pos_w[0, trunk, 2].item()
+    n = 0  # physics steps taken
+
+    def step(render):
+        nonlocal n
+        robot.set_joint_position_target(q_target)
+        robot.write_data_to_sim()
+        sim.step(render=render)
+        robot.update(DT)
+        n += 1
+
+    def look_at_trunk():
+        target = robot.data.body_pos_w[0, trunk]
+        return target + offset, target
+
+    steps_per_frame = round(1 / (FPS * DT))
+    if args.video:
+        import imageio
+
         frames = []
-        for i in range(n_steps):
-            step()
-            if i % int(1 / (fps * model.opt.timestep)) == 0:
-                renderer.update_scene(data, camera=cam)
-                frames.append(renderer.render())
-        mediapy.write_video(args.video, frames, fps=fps)
+        for i in range(int(args.seconds / DT)):
+            frame = i % steps_per_frame == 0
+            if frame:
+                eye, target = look_at_trunk()
+                camera.set_world_poses_from_view(eye.unsqueeze(0), target.unsqueeze(0))
+            step(render=frame)
+            if frame:
+                camera.update(DT * steps_per_frame)
+                frames.append(camera.data.output["rgb"][0, ..., :3].cpu().numpy())
+        imageio.mimwrite(args.video, frames, fps=FPS)
         print(f"wrote {args.video}")
+    elif args.headless:
+        for _ in range(int(args.seconds / DT)):
+            step(render=False)
     else:
-        from mujoco import viewer as mj_viewer
+        start = time.time()
+        while simulation_app.is_running():
+            eye, target = look_at_trunk()
+            sim.set_camera_view(eye.tolist(), target.tolist())
+            for _ in range(steps_per_frame):
+                step(render=False)
+            sim.render()
+            time.sleep(max(0.0, n * DT - (time.time() - start)))  # real time
 
-        steps_per_frame = int(1 / (60 * model.opt.timestep))  # redraw at 60 Hz
-        with mj_viewer.launch_passive(model, data) as viewer:
-            track_trunk(viewer.cam, model)
-            start = time.time()
-            while viewer.is_running():
-                for _ in range(steps_per_frame):
-                    step()
-                viewer.sync()
-                time.sleep(max(0.0, data.time - (time.time() - start)))  # real time
-
-    z1 = data.qpos[2]
+    z1 = robot.data.body_pos_w[0, trunk, 2].item()
     state = "standing" if z1 > 0.8 * z0 else "fallen"
-    print(f"trunk height {z0:.2f} m -> {z1:.2f} m after {data.time:.1f} s: {state}")
+    print(f"trunk height {z0:.2f} m -> {z1:.2f} m after {n * DT:.1f} s: {state}")
+    # Remove Isaac Lab's stop callback, as its environments do on close; otherwise simulation_app.close() hangs.
+    sim.clear_instance()
 
 
 if __name__ == "__main__":
     main()
+    simulation_app.close()
