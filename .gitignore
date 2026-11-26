@@ -3,3 +3,6 @@ data/
 __pycache__/
 .vscode
 notes/
+third_party/
+logs/
+outputs/

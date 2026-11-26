@@ -1,32 +1,21 @@
 
 ## Setup
 
-#### Environment
-
-Conda, Python 3.12:
+Needs [uv](https://docs.astral.sh/uv/getting-started/installation/). Training needs Linux and an NVIDIA GPU (driver 580+); running tasks without training works on Linux, macOS and Windows (WSL).
 
 ```bash
-conda create -n humanoid_env python=3.12
-conda activate humanoid_env
-python -m pip install -r requirements.txt    # ~1.6 GB
+scripts/setup.sh          # K1 model
+uv sync --extra cu130     # Linux + NVIDIA GPU
+uv sync --extra cpu       # Linux, no NVIDIA GPU
+uv sync                   # macOS
 ```
 
-On the GPU workstation, install `jax[cuda12]==0.12.0.1` instead of `jax==0.12.0.1` (see `requirements.txt`).
-
-#### Getting the K1
-
-K1 model from [booster_assets](https://github.com/BoosterRobotics/booster_assets). The script downloads the model XML and its meshes into `src/data/assets/K1/`.
+## Usage
 
 ```bash
-scripts/fetch_k1.sh
+uv run list-envs
+uv run train Velocity-Flat-G1 --env.scene.num-envs 4096        # --gpu-ids "[1]" for the second GPU
+uv run play Velocity-Flat-G1 --checkpoint-file latest          # latest trained policy
+uv run play Velocity-Flat-G1 --agent random                    # check a task runs, no training needed
+uv run train Getup-Flat-K1 --env.scene.num-envs 4096           # K1 getting up (from booster-mjlab)
 ```
-
-
-#### Basic scripts
-
-```bash
-python -m src.examples.view_k1                     # viewer, K1 standing (close the window to stop)
-python -m src.examples.view_k1 --mode fall         # viewer, motors off
-python -m src.examples.view_k1 --video k1.mp4      # no window, writes a 5 s video
-```
-
