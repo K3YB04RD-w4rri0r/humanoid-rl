@@ -4,3 +4,5 @@ __pycache__/
 .vscode
 notes/
 third_party/
+logs/
+outputs/

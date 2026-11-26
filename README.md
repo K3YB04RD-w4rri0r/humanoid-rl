@@ -1,38 +1,21 @@
 
 ## Setup
 
-Needs NVIDIA driver 580.65.06+, Docker and the NVIDIA Container Toolkit.
+Needs [uv](https://docs.astral.sh/uv/getting-started/installation/). Training needs Linux and an NVIDIA GPU (driver 580+); running tasks without training works on Linux, macOS and Windows (WSL).
 
 ```bash
-scripts/setup_isaaclab.sh
-docker run -it --gpus all -e ACCEPT_EULA=Y -v "$PWD":/workspace/humanoid-rl --name humanoid-rl --entrypoint bash nvcr.io/nvidia/isaac-lab:2.3.2
-```
-
-In the container:
-
-```bash
-cd /workspace/humanoid-rl/third_party/booster_train
-pip install -e ../booster_assets -e source/booster_train
-python scripts/csv_to_npz.py --headless --input_file=../booster_assets/motions/K1/k1_mj2_seg1.csv --input_fps=50 --output_file=../booster_assets/motions/K1/k1_mj2_seg1.npz
+scripts/setup.sh          # K1 model
+uv sync --extra cu130     # Linux + NVIDIA GPU
+uv sync --extra cpu       # Linux, no NVIDIA GPU
+uv sync                   # macOS
 ```
 
 ## Usage
 
 ```bash
-docker start -ai humanoid-rl
-```
-
-Train:
-
-```bash
-cd /workspace/humanoid-rl/third_party/booster_train
-python scripts/rsl_rl/train.py --task=Booster-K1-MJ_Dance_002-v0 --headless --device cuda:0
-```
-
-View the K1:
-
-```bash
-cd /workspace/humanoid-rl
-python -m src.examples.view_k1 --video k1.mp4                # 5 s video of the K1 standing
-python -m src.examples.view_k1 --video k1.mp4 --mode fall    # motors off
+uv run list-envs
+uv run train Velocity-Flat-G1 --env.scene.num-envs 4096        # --gpu-ids "[1]" for the second GPU
+uv run play Velocity-Flat-G1 --checkpoint-file latest          # latest trained policy
+uv run play Velocity-Flat-G1 --agent random                    # check a task runs, no training needed
+uv run train Getup-Flat-K1 --env.scene.num-envs 4096           # K1 getting up (from booster-mjlab)
 ```

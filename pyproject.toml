@@ -1,0 +1,53 @@
+[project]
+name = "humanoid-rl"
+version = "0.1.0"
+description = "RL tasks for the Booster K1, built on mjlab."
+readme = "README.md"
+requires-python = ">=3.11,<3.15"
+dependencies = ["mjlab"]
+
+[project.optional-dependencies]
+cu130 = ["torch>=2.14.0"]  # Linux + NVIDIA GPU (driver 580+)
+cpu = ["torch>=2.14.0"]    # Linux without NVIDIA GPU; macOS needs no extra
+
+# mjlab imports every package registered here, so its train/play commands find our tasks.
+[project.entry-points."mjlab.tasks"]
+humanoid_rl = "humanoid_rl.tasks"
+
+[build-system]
+requires = ["uv_build>=0.13.7,<0.14.0"]
+build-backend = "uv_build"
+
+[tool.uv]
+python-preference = "only-managed"  # uv's own Python, the same on every machine (not conda's or the system's)
+conflicts = [[{ extra = "cu130" }, { extra = "cpu" }]]
+required-environments = [
+  "sys_platform == 'darwin' and platform_machine == 'arm64'",
+  "sys_platform == 'linux' and platform_machine == 'x86_64'",
+]
+
+[tool.uv.sources]
+mjlab = { git = "https://github.com/mujocolab/mjlab.git", rev = "d872bfd2b048da657345c07669172fa284b38abf" }
+warp-lang = { index = "nvidia", marker = "sys_platform != 'darwin'" }
+torch = [
+  { index = "pytorch-cu130", extra = "cu130", marker = "sys_platform != 'darwin'" },
+  { index = "pytorch-cpu", extra = "cpu", marker = "sys_platform != 'darwin'" },
+]
+
+[[tool.uv.index]]
+url = "https://pypi.org/simple"
+
+[[tool.uv.index]]
+name = "nvidia"
+url = "https://pypi.nvidia.com/"
+explicit = true
+
+[[tool.uv.index]]
+name = "pytorch-cu130"
+url = "https://download.pytorch.org/whl/cu130"
+explicit = true
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
