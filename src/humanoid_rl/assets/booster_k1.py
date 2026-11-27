@@ -1,51 +1,45 @@
-# Copied from 66Leslie/booster-mjlab at 3c5b8e1 (src/mjlab_playground/asset_zoo/robots/booster_k1/k1_constants.py).
-# Apache License 2.0, see LICENSE.booster-mjlab in this folder. Lineage: NishB17/MJLabModified (Apache-2.0).
-# Changed: the K1 model files (robot.xml, meshes; MJCF from RCSSServerMJ, MIT) load from third_party/booster-mjlab.
+# Model: K1_22dof.xml from BoosterRobotics/booster_assets (BSD-3-Clause), fetched by scripts/setup.sh.
+# Motor specs and gains: BoosterRobotics/booster_train at 83037fd (Apache-2.0),
+# source/booster_train/booster_train/assets/robots/{booster_k1,actuator}.py.
+# Layout adapted from 66Leslie/booster-mjlab at 3c5b8e1 (k1_constants.py), Apache-2.0, see LICENSE.booster-mjlab in this folder.
 """Booster K1 constants."""
 
-import os
+import math
+from dataclasses import dataclass
 from pathlib import Path
 
 import mujoco
-from mjlab.actuator import BuiltinPositionActuatorCfg
+from mjlab.actuator import DcMotorActuatorCfg
 from mjlab.entity import EntityArticulationInfoCfg, EntityCfg
 
 ##
 # MJCF and assets.
 ##
 
-_PACKAGED_K1_XML = (
-  Path(__file__).resolve().parents[3]
-  / "third_party/booster-mjlab/src/mjlab_playground/asset_zoo/robots/booster_k1/xmls/k1/robot.xml"
-)
-
-
-def _resolve_k1_xml() -> Path:
-  candidates = (
-    Path(os.environ["MJLAB_K1_XML"]) if "MJLAB_K1_XML" in os.environ else None,
-    _PACKAGED_K1_XML,
-  )
-  for path in candidates:
-    if path is not None and path.exists():
-      return path
-  checked = ", ".join(str(path) for path in candidates if path is not None)
-  raise FileNotFoundError(
-    "K1 MJCF robot.xml was not found. Set MJLAB_K1_XML or sync "
-    f"the packaged K1 xmls directory. Checked: {checked}"
-  )
+K1_XML = Path(__file__).resolve().parents[3] / "third_party/booster_assets/robots/K1/K1_22dof.xml"
 
 
 def get_spec() -> mujoco.MjSpec:
-  xml_path = _resolve_k1_xml()
-  xml = xml_path.read_text()
-  xml = xml.replace('meshdir="k1/meshes/"', 'meshdir=""')
-  meshes_dir = xml_path.parent / "meshes"
-  assets = {
-    path.name: path.read_bytes() for path in meshes_dir.glob("*") if path.is_file()
-  }
-  spec = mujoco.MjSpec.from_string(xml, assets=assets)
-  while spec.actuators:
-    spec.delete(spec.actuators[0])
+  if not K1_XML.exists():
+    raise FileNotFoundError(f"{K1_XML} not found. Run scripts/setup.sh.")
+  spec = mujoco.MjSpec.from_file(str(K1_XML))
+
+  # The file is a standalone scene: keep only the robot.
+  for element in (*spec.actuators, *spec.lights, *spec.worldbody.geoms, *spec.materials, *spec.textures):
+    spec.delete(element)
+  # mjlab sets these from SimulationCfg and warns when an entity overrides them.
+  default_option = mujoco.MjSpec().option
+  for field in ("timestep", "tolerance", "impratio"):
+    setattr(spec.option, field, getattr(default_option, field))
+
+  # Contact settings of the booster-mjlab model the get-up task was tuned with. The file's
+  # solref (1 ms) is below 2 * timestep, which MuJoCo would clamp anyway.
+  for geom in spec.geoms:
+    if geom.contype or geom.conaffinity:
+      geom.condim = 3
+      geom.priority = 1
+      geom.solimp = (0.9, 0.99, 0.003, 0.5, 2.0)
+      geom.solref = (0.015, 1.0)
   return spec
 
 
@@ -54,115 +48,62 @@ def get_spec() -> mujoco.MjSpec:
 ##
 
 
-K1_JOINT_NAMES: tuple[str, ...] = (
-  "AAHead_yaw",
-  "Head_pitch",
-  "ALeft_Shoulder_Pitch",
-  "Left_Shoulder_Roll",
-  "Left_Elbow_Pitch",
-  "Left_Elbow_Yaw",
-  "ARight_Shoulder_Pitch",
-  "Right_Shoulder_Roll",
-  "Right_Elbow_Pitch",
-  "Right_Elbow_Yaw",
-  "Left_Hip_Pitch",
-  "Left_Hip_Roll",
-  "Left_Hip_Yaw",
-  "Left_Knee_Pitch",
-  "Left_Ankle_Pitch",
-  "Left_Ankle_Roll",
-  "Right_Hip_Pitch",
-  "Right_Hip_Roll",
-  "Right_Hip_Yaw",
-  "Right_Knee_Pitch",
-  "Right_Ankle_Pitch",
-  "Right_Ankle_Roll",
-)
+@dataclass(frozen=True)
+class BoosterMotor:
+  effort_limit: float
+  """Peak torque (Nm)."""
+  velocity_limit: float
+  """Speed (rad/s) at which torque falls to zero."""
+  knee_velocity: float
+  """Speed (rad/s) up to which full torque is available."""
+  armature: float
 
 
-def _kp(armature: float, natural_freq: float) -> float:
-  return armature * (2 * 3.1415926535 * natural_freq) ** 2
+E6408 = BoosterMotor(68.0, 14.66, 1.88, 0.0478125)  # hip pitch
+E4315 = BoosterMotor(43.0, 12.15, 8.38, 0.0339552)  # hip roll
+E4310 = BoosterMotor(38.3, 17.59, 7.85, 0.0282528)  # hip yaw, ankles
+E6416 = BoosterMotor(112.0, 12.57, 2.09, 0.095625)  # knee
+R14 = BoosterMotor(14.0, 33.51, 5.24, 0.001)  # arms
+HT4438 = BoosterMotor(6.0, 7.85, 10.47, 0.001)  # head
 
 
-def _kv(armature: float, natural_freq: float, damping_ratio: float) -> float:
-  return 2.0 * damping_ratio * armature * (2 * 3.1415926535 * natural_freq)
+def _actuator(
+  names: tuple[str, ...],
+  motor: BoosterMotor,
+  natural_freq: float,
+  damping_ratio: float,
+  armature_scale: float = 1.0,
+) -> DcMotorActuatorCfg:
+  armature = motor.armature * armature_scale
+  omega = 2 * math.pi * natural_freq
+  knee = min(motor.knee_velocity, motor.velocity_limit)
+  return DcMotorActuatorCfg(
+    target_names_expr=names,
+    stiffness=armature * omega**2,
+    damping=2 * damping_ratio * armature * omega,
+    effort_limit=motor.effort_limit,
+    # Booster's torque-speed curve is flat up to the knee, then linear to zero at velocity_limit.
+    # mjlab's is linear from saturation_effort at rest, capped at effort_limit: this puts its corner at the knee.
+    saturation_effort=motor.effort_limit * motor.velocity_limit / max(motor.velocity_limit - knee, 1e-6),
+    velocity_limit=motor.velocity_limit,
+    armature=armature,
+    # Command delay of 2-8 physics steps (10-40 ms), sampled once per episode.
+    delay_min_lag=2,
+    delay_max_lag=8,
+    delay_hold_prob=1.0,
+  )
 
 
-_NF = 4.0
-
-K1_ACTUATOR_HEAD = BuiltinPositionActuatorCfg(
-  target_names_expr=("AAHead_yaw", "Head_pitch"),
-  stiffness=_kp(0.001, _NF),
-  damping=_kv(0.001, _NF, 2.0),
-  effort_limit=6.0,
-  armature=0.001,
-)
-
-K1_ACTUATOR_ARM = BuiltinPositionActuatorCfg(
-  target_names_expr=(
-    "ALeft_Shoulder_Pitch",
-    "Left_Shoulder_Roll",
-    "Left_Elbow_Pitch",
-    "Left_Elbow_Yaw",
-    "ARight_Shoulder_Pitch",
-    "Right_Shoulder_Roll",
-    "Right_Elbow_Pitch",
-    "Right_Elbow_Yaw",
-  ),
-  stiffness=_kp(0.001, _NF),
-  damping=_kv(0.001, _NF, 2.0),
-  effort_limit=14.0,
-  armature=0.001,
-)
-
-K1_ACTUATOR_HIP_PITCH = BuiltinPositionActuatorCfg(
-  target_names_expr=(".*_Hip_Pitch",),
-  stiffness=_kp(0.0478125, _NF),
-  damping=_kv(0.0478125, _NF, 1.5),
-  effort_limit=68.0,
-  armature=0.0478125,
-)
-
-K1_ACTUATOR_HIP_ROLL = BuiltinPositionActuatorCfg(
-  target_names_expr=(".*_Hip_Roll",),
-  stiffness=_kp(0.0339552, _NF),
-  damping=_kv(0.0339552, _NF, 1.5),
-  effort_limit=76.0,
-  armature=0.0339552,
-)
-
-K1_ACTUATOR_HIP_YAW = BuiltinPositionActuatorCfg(
-  target_names_expr=(".*_Hip_Yaw",),
-  stiffness=_kp(0.0282528, _NF),
-  damping=_kv(0.0282528, _NF, 1.5),
-  effort_limit=38.3,
-  armature=0.0282528,
-)
-
-K1_ACTUATOR_KNEE = BuiltinPositionActuatorCfg(
-  target_names_expr=(".*_Knee_Pitch",),
-  stiffness=_kp(0.095625, _NF),
-  damping=_kv(0.095625, _NF, 1.0),
-  effort_limit=112.0,
-  armature=0.095625,
-)
-
-_ANKLE_ARMATURE = 0.0282528 * 2.0
-
-K1_ACTUATOR_ANKLE_PITCH = BuiltinPositionActuatorCfg(
-  target_names_expr=(".*_Ankle_Pitch",),
-  stiffness=_kp(_ANKLE_ARMATURE, _NF),
-  damping=_kv(_ANKLE_ARMATURE, _NF, 1.5),
-  effort_limit=38.3,
-  armature=_ANKLE_ARMATURE,
-)
-
-K1_ACTUATOR_ANKLE_ROLL = BuiltinPositionActuatorCfg(
-  target_names_expr=(".*_Ankle_Roll",),
-  stiffness=_kp(_ANKLE_ARMATURE, _NF),
-  damping=_kv(_ANKLE_ARMATURE, _NF, 1.5),
-  effort_limit=38.3,
-  armature=_ANKLE_ARMATURE,
+K1_ACTUATORS = (
+  _actuator((".*_hip_pitch_joint",), E6408, 4.0, 1.5),
+  _actuator((".*_hip_roll_joint",), E4315, 4.0, 1.5),
+  _actuator((".*_hip_yaw_joint",), E4310, 4.0, 1.5),
+  _actuator((".*_knee_pitch_joint",), E6416, 4.0, 1.0),
+  # Parallel-linkage ankle, modelled as serial pitch and roll joints.
+  _actuator((".*_ankle_pitch_joint",), E4310, 4.0, 1.5, armature_scale=1.4),
+  _actuator((".*_ankle_roll_joint",), E4310, 4.0, 1.5, armature_scale=0.4),
+  _actuator((".*_shoulder_pitch_joint", ".*_shoulder_roll_joint", ".*_elbow_pitch_joint", ".*_elbow_yaw_joint"), R14, 10.0, 2.0),
+  _actuator((".*head.*",), HT4438, 10.0, 2.0),
 )
 
 ##
@@ -172,13 +113,13 @@ K1_ACTUATOR_ANKLE_ROLL = BuiltinPositionActuatorCfg(
 HOME_KEYFRAME = EntityCfg.InitialStateCfg(
   pos=(0.0, 0.0, 0.543),
   joint_pos={
-    "Left_Shoulder_Roll": -1.3,
-    "Left_Elbow_Yaw": -0.4,
-    "Right_Shoulder_Roll": 1.3,
-    "Right_Elbow_Yaw": 0.4,
-    ".*_Hip_Pitch": -0.2,
-    ".*_Knee_Pitch": 0.4,
-    ".*_Ankle_Pitch": -0.2,
+    "left_shoulder_roll_joint": -1.3,
+    "left_elbow_yaw_joint": -0.4,
+    "right_shoulder_roll_joint": 1.3,
+    "right_elbow_yaw_joint": 0.4,
+    ".*_hip_pitch_joint": -0.2,
+    ".*_knee_pitch_joint": 0.4,
+    ".*_ankle_pitch_joint": -0.2,
   },
   joint_vel={".*": 0.0},
 )
@@ -188,16 +129,7 @@ HOME_KEYFRAME = EntityCfg.InitialStateCfg(
 ##
 
 K1_ARTICULATION = EntityArticulationInfoCfg(
-  actuators=(
-    K1_ACTUATOR_HEAD,
-    K1_ACTUATOR_ARM,
-    K1_ACTUATOR_HIP_PITCH,
-    K1_ACTUATOR_HIP_ROLL,
-    K1_ACTUATOR_HIP_YAW,
-    K1_ACTUATOR_KNEE,
-    K1_ACTUATOR_ANKLE_PITCH,
-    K1_ACTUATOR_ANKLE_ROLL,
-  ),
+  actuators=K1_ACTUATORS,
   soft_joint_pos_limit_factor=0.9,
 )
 
@@ -213,7 +145,6 @@ def get_k1_robot_cfg() -> EntityCfg:
 
 K1_ACTION_SCALE: dict[str, float] = {}
 for a in K1_ARTICULATION.actuators:
-  assert isinstance(a, BuiltinPositionActuatorCfg)
-  assert a.effort_limit is not None
+  assert isinstance(a, DcMotorActuatorCfg)
   for n in a.target_names_expr:
     K1_ACTION_SCALE[n] = 0.25 * a.effort_limit / a.stiffness
