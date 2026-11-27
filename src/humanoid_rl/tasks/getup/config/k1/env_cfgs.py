@@ -1,6 +1,6 @@
 # Copied from 66Leslie/booster-mjlab at 3c5b8e1 (src/mjlab_playground/tasks/getup/config/k1/env_cfgs.py).
 # Apache License 2.0, see src/humanoid_rl/tasks/getup/LICENSE.booster-mjlab. Lineage: mujocolab/mjlab_playground (Apache-2.0).
-# Changed: imports point to this package.
+# Changed: imports point to this package; joint and body names follow Booster's K1_22dof.xml.
 """Booster K1 getup environment configuration."""
 
 from mjlab.envs import ManagerBasedRlEnvCfg
@@ -37,8 +37,8 @@ def booster_k1_getup_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
 
   self_collision_cfg = ContactSensorCfg(
     name="self_collision",
-    primary=ContactMatch(mode="subtree", pattern="torso", entity="robot"),
-    secondary=ContactMatch(mode="subtree", pattern="torso", entity="robot"),
+    primary=ContactMatch(mode="subtree", pattern="trunk", entity="robot"),
+    secondary=ContactMatch(mode="subtree", pattern="trunk", entity="robot"),
     fields=("found", "force"),
     reduce="none",
     num_slots=1,
@@ -54,14 +54,14 @@ def booster_k1_getup_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
 
   cfg.rewards["torso_height"].params["desired_height"] = _TORSO_HEIGHT
   cfg.rewards["torso_height"].params["asset_cfg"] = SceneEntityCfg(
-    "robot", body_names=("torso",)
+    "robot", body_names=("trunk",)
   )
   cfg.rewards["left_hip_height"] = RewardTermCfg(
     func=mdp.height_reward,
     weight=0.5,
     params={
       "desired_height": _HIP_HEIGHT,
-      "asset_cfg": SceneEntityCfg("robot", body_names=("Left_Hip_Pitch",)),
+      "asset_cfg": SceneEntityCfg("robot", body_names=("left_hip_pitch_link",)),
     },
   )
   cfg.rewards["right_hip_height"] = RewardTermCfg(
@@ -69,26 +69,26 @@ def booster_k1_getup_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
     weight=0.5,
     params={
       "desired_height": _HIP_HEIGHT,
-      "asset_cfg": SceneEntityCfg("robot", body_names=("Right_Hip_Pitch",)),
+      "asset_cfg": SceneEntityCfg("robot", body_names=("right_hip_pitch_link",)),
     },
   )
   cfg.metrics["getup_success"].params["desired_height"] = _TORSO_HEIGHT
 
   cfg.rewards["posture"].params["std"] = {
-    r".*_Hip_Roll": 0.08,
-    r".*_Hip_Yaw": 0.08,
-    r".*_Hip_Pitch": 0.12,
-    r".*_Knee_Pitch": 0.15,
-    r".*_Ankle_Pitch": 0.2,
-    r".*_Ankle_Roll": 0.2,
-    r"(AAHead_yaw|Head_pitch)": 0.15,
-    r"(.*_Shoulder.*|.*_Elbow.*)": 0.5,
+    r".*_hip_roll_joint": 0.08,
+    r".*_hip_yaw_joint": 0.08,
+    r".*_hip_pitch_joint": 0.12,
+    r".*_knee_pitch_joint": 0.15,
+    r".*_ankle_pitch_joint": 0.2,
+    r".*_ankle_roll_joint": 0.2,
+    r"aahead_.*_joint": 0.15,
+    r".*_(shoulder|elbow)_.*_joint": 0.5,
   }
 
-  cfg.viewer.body_name = "torso"
+  cfg.viewer.body_name = "trunk"
 
   cfg.events["base_com"].params["asset_cfg"] = SceneEntityCfg(
-    "robot", body_names=("torso",)
+    "robot", body_names=("trunk",)
   )
 
   cfg.events["reset_fallen_or_standing"].params["fall_height"] = 0.65
